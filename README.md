@@ -55,7 +55,7 @@ import (
 func main() {
 	deliveryChan := make(chan kafka.Event)
 	topic := "myTopic"
-	msgData := message.MessageData{} // replace this with your own code
+	msgData := message.MessageData{} // replace this with your own struct
 	md := msgData.ProtoReflect().Descriptor()
 	sc := srclient.CreateSchemaRegistryClient("http://localhost:8081") // we are using the srclient to interact with Confluent Schema Registry
 	ps, err := serdes.NewProtobufSerializer(md, sc, serdes.ProtobufSerializerConfig{serdes.AutoRegisterSchemas: true, serdes.UseLatestVersion: true}) // you can change these settings as you require
@@ -97,10 +97,44 @@ func main() {
 
 ### Deserializer
 ```go
-pd := serdes.NewProtobufDeserializer()
-msgData := &message.MessageData{}
-err := bkt.pd.Deserialize(msg.Value, msgData)
-if err != nil {
-    logger.Error().Err(err).Msg("Error trying to unmarshal the message from Kafka")
+package main
+
+import (
+	"fmt"
+	"github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/finncolman/kafka-go-serdes/internal/message" // replace this with your own generated protobuf code
+	"github.com/finncolman/kafka-go-serdes/serdes"
+)
+
+func main() {
+	// our deserializer that can parse the Schema Registry wire format correctly
+	pd := serdes.NewProtobufDeserializer()
+
+	// this is just a standard confluent-kafka-go consumer
+	c, err := kafka.NewConsumer(&kafka.ConfigMap{
+		"bootstrap.servers": "localhost",
+		"group.id":          "myGroup",
+		"auto.offset.reset": "earliest",
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer c.Close()
+	c.SubscribeTopics([]string{"myTopic"}, nil)
+
+	for {
+		msg, err := c.ReadMessage(-1)
+		if err != nil {
+			panic(fmt.Sprintf("error trying to ReadMessage %s", err))
+		}
+		protoMsgData := &message.MessageData{} // replace this with your own struct pointer
+		err = pd.Deserialize(msg.Value, protoMsgData) // protoMsgData will now contain the deserialized data
+		if err != nil {
+			panic(fmt.Sprintf("error trying to unmarshal the message from Kafka %s", err))
+		}
+	}
 }
 ```
+
+## Acknowledgements
+* Apache, Apache Kafka, Kafka, and associated open source project names are trademarks of the [Apache Software Foundation](https://www.apache.org/).
