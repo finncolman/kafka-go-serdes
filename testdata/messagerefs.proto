@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+option go_package = "internal/messagerefs";
+
+import "nested1.proto";
+import "nested2.proto";
+
+package messagerefs;
+
+message MessageData {
+  Nested1 nest1 = 1;
+  Nested2 nest2 = 2;
+}

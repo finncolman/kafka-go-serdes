@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+option go_package = "internal/message";
+
+package message;
+
+message Nested1 {
+  int64 message_id = 1;
+  string test = 2;
+  string test_2 = 3;
+}
+
+message Nested2 {
+  string id = 1;
+  string another = 2;
+  int64 another_message = 3;
+  map<string, string> additional_data = 4;
+  string another_part = 5;
+}
+
+message MessageData {
+  Nested1 nest1 = 1;
+  Nested2 nest2 = 2;
+}

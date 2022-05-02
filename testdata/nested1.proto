@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+option go_package = "internal/messagerefs";
+
+package messagerefs;
+
+message Nested1 {
+  int64 message_id = 1;
+  string test = 2;
+  string test_2 = 3;
+}

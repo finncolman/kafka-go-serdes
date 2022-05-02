@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+option go_package = "internal/messagerefs";
+
+package messagerefs;
+
+message Nested2 {
+  string id = 1;
+  string another = 2;
+  int64 another_message = 3;
+  map<string, string> additional_data = 4;
+  string another_part = 5;
+}
