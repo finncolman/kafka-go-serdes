@@ -2,8 +2,6 @@
 
 ![Build Status](https://github.com/finncolman/kafka-go-serdes/actions/workflows/go.yml/badge.svg?event=push)
 
-Serdes for confluent-kafka-go
-
 **kafka-go-serdes** is a Serilializer/Deserializer (Serdes) designed to be used with Go and the Confluent Schema Registry.
 It will serialize records and decorate the serialized records with the schema ID used in Confluent Schema Registry.
 Currently only [Protobuf](https://developers.google.com/protocol-buffers) format is supported, due to Protobuf having the best library support with Go.
