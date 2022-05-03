@@ -13,7 +13,7 @@ This library fills in that gap. It is meant to be used in conjunction with githu
 ## Features
 
 * **Simple to Use** - You can continue to use the confluent-kafka-go lib as is. 
-This library will just help to generated protobuf serialized data that conforms with the required wire format with the prepended schema ID for working with Schema Registry.
+This library will just help to generate protobuf serialized data that conforms with the required wire format with the prepended schema ID for working with Schema Registry.
 The Value you pass to the produce call via a kafka.Message is still a byte slice.
 
 **License**: [Apache License v2.0](http://www.apache.org/licenses/LICENSE-2.0)
