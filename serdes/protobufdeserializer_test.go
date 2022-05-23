@@ -2,8 +2,8 @@ package serdes
 
 import (
 	"github.com/finncolman/kafka-go-serdes/internal/message"
-	"github.com/golang/protobuf/proto"
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/protobuf/proto"
 	"testing"
 )
 

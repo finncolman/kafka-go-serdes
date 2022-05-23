@@ -74,13 +74,13 @@ func (mck MockSchemaRegistryClient) CreateSchema(subject string, schema string, 
 		}
 
 		mck.ids.ids++
-		result := mck.generateVersion(subject, schema)
+		result := mck.generateVersion(subject, schema, schemaType)
 		return result, nil
 	} else {
 
 		//Subject does not exist, We need full registration
 		mck.ids.ids++
-		result := mck.generateVersion(subject, schema)
+		result := mck.generateVersion(subject, schema, schemaType)
 		return result, nil
 	}
 }
@@ -106,7 +106,9 @@ func (mck MockSchemaRegistryClient) GetLatestSchema(subject string) (*Schema, er
 	if getSchemaVersionErr != nil {
 		return nil, getSchemaVersionErr
 	}
-
+	if len(versions) == 0 {
+		return nil, errors.New("Subject not found")
+	}
 	latestVersion := versions[len(versions)-1]
 	thisSchema, err := mck.GetSchemaByVersion(subject, latestVersion)
 	if err != nil {
@@ -172,6 +174,32 @@ func (mck MockSchemaRegistryClient) DeleteSubject(subject string, _ bool) error 
 	return nil
 }
 
+// DeleteSubjectByVersion removes given subject's version from cache
+func (mck MockSchemaRegistryClient) DeleteSubjectByVersion(subject string, version int, _ bool) error {
+	_, ok := mck.schemaCache[subject]
+	if !ok {
+		posErr := url.Error{
+			Op:  "DELETE",
+			URL: mck.schemaRegistryURL + fmt.Sprintf("/subjects/%s/versions/%d", subject, version),
+			Err: errors.New("Subject Not found"),
+		}
+		return &posErr
+	}
+	for schema, id := range mck.schemaCache[subject] {
+		if id == version {
+			delete(mck.schemaCache[subject], schema)
+			return nil
+		}
+	}
+
+	posErr := url.Error{
+		Op:  "GET",
+		URL: mck.schemaRegistryURL + fmt.Sprintf("/subjects/%s/versions/%d", subject, version),
+		Err: errors.New("Version Not found"),
+	}
+	return &posErr
+}
+
 func (mck MockSchemaRegistryClient) ChangeSubjectCompatibilityLevel(subject string, compatibility CompatibilityLevel) (*CompatibilityLevel, error) {
 	return nil, errors.New("mock schema registry client can't change subject compatibility level")
 }
@@ -199,6 +227,10 @@ func (mck MockSchemaRegistryClient) CachingEnabled(value bool) {
 	// Nothing because caching is always enabled, duh
 }
 
+func (mck MockSchemaRegistryClient) ResetCache() {
+	// Nothing because there is no lock for cache
+}
+
 func (mck MockSchemaRegistryClient) CodecCreationEnabled(value bool) {
 	// Nothing because codecs do not matter in the inMem storage of schemas
 }
@@ -219,7 +251,7 @@ handled beforehand by the environment.
 allVersions returns an ordered int[] with all versions for a given subject. It does NOT
 qualify for key/value subjects, it expects to have a `concrete subject` passed on to do the checks.
 */
-func (mck MockSchemaRegistryClient) generateVersion(subject string, schema string) *Schema {
+func (mck MockSchemaRegistryClient) generateVersion(subject string, schema string, schemaType SchemaType) *Schema {
 	versions := mck.allVersions(subject)
 	schemaVersionMap := map[*Schema]int{}
 	var currentVersion int
@@ -230,11 +262,15 @@ func (mck MockSchemaRegistryClient) generateVersion(subject string, schema strin
 		currentVersion = versions[len(versions)-1] + 1
 	}
 
+	// creates a copy
+	typeToRegister := schemaType
+
 	schemaToRegister := Schema{
 		id:      mck.ids.ids,
 		schema:  schema,
 		version: currentVersion,
 		codec:   nil,
+		schemaType: &typeToRegister,
 	}
 
 	schemaVersionMap[&schemaToRegister] = currentVersion

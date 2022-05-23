@@ -98,6 +98,10 @@ func (*mockSchemaRegistryClient) DeleteSubject(string, bool) error {
 	return nil
 }
 
+func (*mockSchemaRegistryClient) DeleteSubjectByVersion(string, int, bool) error {
+	return nil
+}
+
 func (*mockSchemaRegistryClient) SetCredentials(string, string) {
 }
 
@@ -132,6 +136,9 @@ func (*mockSchemaRegistryClient) GetSubjectsIncludingDeleted() ([]string, error)
 
 func (*mockSchemaRegistryClient) LookupSchema(subject string, schema string, schemaType srclient.SchemaType, references ...srclient.Reference) (*srclient.Schema, error) {
 	return &srclient.Schema{}, nil
+}
+
+func (*mockSchemaRegistryClient) ResetCache() {
 }
 
 func TestProtobufSerializer_Serialize(t *testing.T) {

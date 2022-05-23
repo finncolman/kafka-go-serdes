@@ -3,7 +3,7 @@ package serdes
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 // ProtobufDeserializer using the schema registry client

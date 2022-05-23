@@ -4,16 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/linkedin/goavro/v2"
+	"github.com/santhosh-tekuri/jsonschema/v5"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -33,9 +36,11 @@ type ISchemaRegistryClient interface {
 	LookupSchema(subject string, schema string, schemaType SchemaType, references ...Reference) (*Schema, error)
 	ChangeSubjectCompatibilityLevel(subject string, compatibility CompatibilityLevel) (*CompatibilityLevel, error)
 	DeleteSubject(subject string, permanent bool) error
+	DeleteSubjectByVersion(subject string, version int, permanent bool) error
 	SetCredentials(username string, password string)
 	SetTimeout(timeout time.Duration)
 	CachingEnabled(value bool)
+	ResetCache()
 	CodecCreationEnabled(value bool)
 	IsSchemaCompatible(subject, schema, version string, schemaType SchemaType) (bool, error)
 }
@@ -104,9 +109,11 @@ type Reference struct {
 type Schema struct {
 	id         int
 	schema     string
+	schemaType *SchemaType
 	version    int
 	references []Reference
 	codec      *goavro.Codec
+	jsonSchema *jsonschema.Schema
 }
 
 type credentials struct {
@@ -124,6 +131,7 @@ type schemaResponse struct {
 	Subject    string      `json:"subject"`
 	Version    int         `json:"version"`
 	Schema     string      `json:"schema"`
+	SchemaType *SchemaType `json:"schemaType"`
 	ID         int         `json:"id"`
 	References []Reference `json:"references"`
 }
@@ -174,6 +182,18 @@ func CreateSchemaRegistryClientWithOptions(schemaRegistryURL string, client *htt
 	}
 }
 
+// ResetCache resets the schema caches to be able to get updated schemas.
+func (client *SchemaRegistryClient) ResetCache() {
+
+	client.idSchemaCacheLock.Lock()
+	client.subjectSchemaCacheLock.Lock()
+	client.idSchemaCache = make(map[int]*Schema)
+	client.subjectSchemaCache = make(map[string]*Schema)
+	client.idSchemaCacheLock.Unlock()
+	client.subjectSchemaCacheLock.Unlock()
+
+}
+
 // GetSchema gets the schema associated with the given id.
 func (client *SchemaRegistryClient) GetSchema(schemaID int) (*Schema, error) {
 
@@ -204,9 +224,10 @@ func (client *SchemaRegistryClient) GetSchema(schemaID int) (*Schema, error) {
 		}
 	}
 	var schema = &Schema{
-		id:     schemaID,
-		schema: schemaResp.Schema,
-		codec:  codec,
+		id:         schemaID,
+		schema:     schemaResp.Schema,
+		schemaType: schemaResp.SchemaType,
+		codec:      codec,
 	}
 
 	if client.getCachingEnabled() {
@@ -226,7 +247,7 @@ func (client *SchemaRegistryClient) GetLatestSchema(subject string) (*Schema, er
 
 // GetSchemaVersions returns a list of versions from a given subject.
 func (client *SchemaRegistryClient) GetSchemaVersions(subject string) ([]int, error) {
-	resp, err := client.httpRequest("GET", fmt.Sprintf(subjectVersions, subject), nil)
+	resp, err := client.httpRequest("GET", fmt.Sprintf(subjectVersions, url.QueryEscape(subject)), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +270,7 @@ func (client *SchemaRegistryClient) ChangeSubjectCompatibilityLevel(subject stri
 	}
 	payload := bytes.NewBuffer(configChangeReqBytes)
 
-	resp, err := client.httpRequest("PUT", fmt.Sprintf(configBySubject, subject), payload)
+	resp, err := client.httpRequest("PUT", fmt.Sprintf(configBySubject, url.QueryEscape(subject)), payload)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +303,7 @@ func (client *SchemaRegistryClient) GetGlobalCompatibilityLevel() (*Compatibilit
 // GetCompatibilityLevel returns the compatibility level of the subject.
 // If defaultToGlobal is set to true and no compatibility level is set on the subject, the global compatibility level is returned.
 func (client *SchemaRegistryClient) GetCompatibilityLevel(subject string, defaultToGlobal bool) (*CompatibilityLevel, error) {
-	resp, err := client.httpRequest("GET", fmt.Sprintf(configBySubject+"?defaultToGlobal=%t", subject, defaultToGlobal), nil)
+	resp, err := client.httpRequest("GET", fmt.Sprintf(configBySubject+"?defaultToGlobal=%t", url.QueryEscape(subject), defaultToGlobal), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -355,7 +376,7 @@ func (client *SchemaRegistryClient) CreateSchema(subject string, schema string,
 		return nil, err
 	}
 	payload := bytes.NewBuffer(schemaBytes)
-	resp, err := client.httpRequest("POST", fmt.Sprintf(subjectVersions, subject), payload)
+	resp, err := client.httpRequest("POST", fmt.Sprintf(subjectVersions, url.QueryEscape(subject)), payload)
 	if err != nil {
 		return nil, err
 	}
@@ -365,14 +386,8 @@ func (client *SchemaRegistryClient) CreateSchema(subject string, schema string,
 	if err != nil {
 		return nil, err
 	}
-	// Conceptually, the schema returned below will be the
-	// exactly same one created above. However, since Schema
-	// Registry can have multiple concurrent clients writing
-	// schemas, this may produce an incorrect result. Thus,
-	// this logic strongly relies on the idempotent guarantees
-	// from Schema Registry, as well as in the best practice
-	// that schemas don't change very often.
-	newSchema, err := client.GetLatestSchema(subject)
+
+	newSchema, err := client.GetSchema(schemaResp.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -418,7 +433,7 @@ func (client *SchemaRegistryClient) LookupSchema(subject string, schema string, 
 		return nil, err
 	}
 	payload := bytes.NewBuffer(schemaBytes)
-	resp, err := client.httpRequest("POST", fmt.Sprintf(subjectBySubject, subject), payload)
+	resp, err := client.httpRequest("POST", fmt.Sprintf(subjectBySubject, url.QueryEscape(subject)), payload)
 	if err != nil {
 		return nil, err
 	}
@@ -439,6 +454,7 @@ func (client *SchemaRegistryClient) LookupSchema(subject string, schema string, 
 	var gotSchema = &Schema{
 		id:         schemaResp.ID,
 		schema:     schemaResp.Schema,
+		schemaType: schemaResp.SchemaType,
 		version:    schemaResp.Version,
 		references: schemaResp.References,
 		codec:      codec,
@@ -501,6 +517,19 @@ func (client *SchemaRegistryClient) DeleteSubject(subject string, permanent bool
 	return err
 }
 
+// DeleteSubjectByVersion deletes the version of the scheme
+func (client *SchemaRegistryClient) DeleteSubjectByVersion(subject string, version int, permanent bool) error {
+	uri := fmt.Sprintf(subjectByVersion, subject, strconv.Itoa(version))
+	_, err := client.httpRequest("DELETE", uri, nil)
+	if err != nil || !permanent {
+		return err
+	}
+
+	uri += "?permanent=true"
+	_, err = client.httpRequest("DELETE", uri, nil)
+	return err
+}
+
 // SetCredentials allows users to set credentials to be
 // used with Schema Registry, for scenarios when Schema
 // Registry has authentication enabled.
@@ -547,7 +576,7 @@ func (client *SchemaRegistryClient) getVersion(subject string, version string) (
 		}
 	}
 
-	resp, err := client.httpRequest("GET", fmt.Sprintf(subjectByVersion, subject, version), nil)
+	resp, err := client.httpRequest("GET", fmt.Sprintf(subjectByVersion, url.QueryEscape(subject), version), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -567,6 +596,7 @@ func (client *SchemaRegistryClient) getVersion(subject string, version string) (
 	var schema = &Schema{
 		id:         schemaResp.ID,
 		schema:     schemaResp.Schema,
+		schemaType: schemaResp.SchemaType,
 		version:    schemaResp.Version,
 		references: schemaResp.References,
 		codec:      codec,
@@ -631,6 +661,30 @@ func (client *SchemaRegistryClient) getCodecCreationEnabled() bool {
 	return client.codecCreationEnabled
 }
 
+// NewSchema instantiates a new Schema struct.
+func NewSchema(
+	id int,
+	schema string,
+	schemaType SchemaType,
+	version int,
+	references []Reference,
+	codec *goavro.Codec,
+	jsonSchema *jsonschema.Schema,
+) (*Schema, error) {
+	if schema == "" {
+		return nil, errors.New("schema cannot be nil")
+	}
+	return &Schema{
+		id:         id,
+		schema:     schema,
+		schemaType: &schemaType,
+		version:    version,
+		references: references,
+		codec:      codec,
+		jsonSchema: jsonSchema,
+	}, nil
+}
+
 // ID ensures access to ID
 func (schema *Schema) ID() int {
 	return schema.id
@@ -639,6 +693,11 @@ func (schema *Schema) ID() int {
 // Schema ensures access to Schema
 func (schema *Schema) Schema() string {
 	return schema.schema
+}
+
+// SchemaType ensures access to SchemaType
+func (schema *Schema) SchemaType() *SchemaType {
+	return schema.schemaType
 }
 
 // Version ensures access to Version
@@ -664,19 +723,41 @@ func (schema *Schema) Codec() *goavro.Codec {
 	return schema.codec
 }
 
+// JsonSchema ensures access to JsonSchema
+// Will try to initialize a new one if it hasn't been initialized before
+// Will return nil if it can't initialize a json schema from the schema
+func (schema *Schema) JsonSchema() *jsonschema.Schema {
+	if schema.jsonSchema == nil {
+		jsonSchema, err := jsonschema.CompileString("schema.json", schema.Schema())
+		if err == nil {
+			schema.jsonSchema = jsonSchema
+		}
+	}
+	return schema.jsonSchema
+}
+
 func cacheKey(subject string, version string) string {
 	return fmt.Sprintf("%s-%s", subject, version)
 }
 
+// Error implements error, encodes HTTP errors from Schema Registry.
+type Error struct {
+	Code    int    `json:"error_code"`
+	Message string `json:"message"`
+	str     *bytes.Buffer
+}
+
+func (e Error) Error() string {
+	return e.str.String()
+}
+
 func createError(resp *http.Response) error {
-	decoder := json.NewDecoder(resp.Body)
-	var errorResp struct {
-		ErrorCode int    `json:"error_code"`
-		Message   string `json:"message"`
+	err := Error{str: bytes.NewBuffer(make([]byte, 0))}
+	decoder := json.NewDecoder(io.TeeReader(resp.Body, err.str))
+	marshalErr := decoder.Decode(&err)
+	if marshalErr != nil {
+		return fmt.Errorf("%s", resp.Status)
 	}
-	err := decoder.Decode(&errorResp)
-	if err == nil {
-		return fmt.Errorf("%s: %s", resp.Status, errorResp.Message)
-	}
-	return fmt.Errorf("%s", resp.Status)
+
+	return err
 }

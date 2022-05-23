@@ -4,8 +4,8 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
-	"github.com/golang/protobuf/proto"
 	"github.com/riferrei/srclient"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"sort"
@@ -285,8 +285,7 @@ func (ps *ProtobufSerializer) SetReferenceSubjectNameStrategy(config ProtobufSer
 
 // Serialize using the Confluent Schema Registry wire format
 func (ps *ProtobufSerializer) Serialize(pb proto.Message, ctx SerializationContext) ([]byte, error) {
-	m := proto.MessageV2(pb)
-	md := m.ProtoReflect().Descriptor()
+	md := pb.ProtoReflect().Descriptor()
 
 	subject := ps.subjectNameStrategy.Subject(ctx, string(md.FullName()))
 
