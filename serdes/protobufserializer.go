@@ -4,12 +4,14 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
+	"sort"
+	"strings"
+	"sync"
+
 	"github.com/riferrei/srclient"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"sort"
-	"strings"
 )
 
 const (
@@ -92,6 +94,7 @@ type ProtobufSerializer struct {
 	useLatestVersion             bool
 	skipKnownTypes               bool
 	knownSubjects                map[string]int // map from subject name to associated schema ID
+	knownSubjectsLock            sync.RWMutex
 	subjectNameStrategy          SubjectNameStrategy
 	referenceSubjectNameStrategy SubjectNameStrategyForReferences
 }
@@ -353,7 +356,9 @@ func (ps *ProtobufSerializer) resolveDependencies(ctx SerializationContext, fd p
 }
 
 func (ps *ProtobufSerializer) getSchemaID(ctx SerializationContext, md protoreflect.MessageDescriptor, subject string) (int, error) {
+	ps.knownSubjectsLock.RLock()
 	schemaID, ok := ps.knownSubjects[subject]
+	ps.knownSubjectsLock.RUnlock()
 	if ok {
 		return schemaID, nil
 	}
@@ -389,7 +394,10 @@ func (ps *ProtobufSerializer) getSchemaID(ctx SerializationContext, md protorefl
 		}
 	}
 
+	ps.knownSubjectsLock.Lock()
 	ps.knownSubjects[subject] = schemaID
+	ps.knownSubjectsLock.Unlock()
+
 	return schemaID, nil
 }
 
