@@ -11,7 +11,7 @@ github.com/google/go-cmp/cmp/internal/value
 # github.com/linkedin/goavro/v2 v2.11.1
 ## explicit; go 1.12
 github.com/linkedin/goavro/v2
-# github.com/riferrei/srclient v0.5.3
+# github.com/riferrei/srclient v0.5.4
 ## explicit; go 1.12
 github.com/riferrei/srclient
 # github.com/santhosh-tekuri/jsonschema/v5 v5.0.0

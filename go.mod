@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	github.com/google/go-cmp v0.5.8
-	github.com/riferrei/srclient v0.5.3
+	github.com/riferrei/srclient v0.5.4
 	google.golang.org/protobuf v1.28.0
 )
 
